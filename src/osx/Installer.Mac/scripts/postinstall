@@ -1,0 +1,52 @@
+#!/bin/bash
+set -e
+
+PACKAGE=$1
+INSTALL_DESTINATION=$2
+
+function IsBrewPkgInstalled
+{
+    # Check if Homebrew is installed
+    /usr/bin/which brew > /dev/null
+    if [ $? -eq 0 ]
+    then
+        # Check if the package has been installed
+        brew ls --versions "$1" > /dev/null
+        if [ $? -eq 0 ]
+        then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Check if Java GCM is present on this system and unlink it should it exist
+if [ -L /usr/local/bin/git-credential-manager ] && IsBrewPkgInstalled "git-credential-manager";
+then
+    brew unlink git-credential-manager
+fi
+
+# Create symlink to GCM in /usr/local/bin
+mkdir -p /usr/local/bin
+/bin/ln -Fs "$INSTALL_DESTINATION/git-credential-manager" /usr/local/bin/git-credential-manager
+
+# Configure GCM for the current user (running as the current user to avoid root
+# from taking ownership of ~/.gitconfig).
+# Determine the real (non-root) user via multiple methods since the installer
+# may be invoked with USER/LOGNAME unset (e.g. when run via Homebrew which
+# explicitly clears those environment variables).
+# 1. SUDO_USER - set by sudo, works for both GUI (Homebrew) and SSH scenarios.
+# 2. stat /dev/console - works for GUI sessions when not running under sudo.
+REAL_USER="${SUDO_USER}"
+if [ -z "${REAL_USER}" ] || [ "${REAL_USER}" = "root" ]; then
+    REAL_USER=$(stat -f%Su /dev/console 2>/dev/null)
+fi
+
+if [ -n "${REAL_USER}" ] && [ "${REAL_USER}" != "root" ]; then
+    sudo -u "${REAL_USER}" "$INSTALL_DESTINATION/git-credential-manager" configure
+else
+    echo "warning: unable to determine the installing user; GCM has not been configured automatically." >&2
+    echo "warning: run 'git-credential-manager configure' to configure GCM for your user." >&2
+fi
+
+exit 0
